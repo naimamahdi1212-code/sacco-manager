@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chama & SACCO Manager</title>
+<style>
+:root{--g:#1b7a43;--gd:#14532d;--bg:#f4f8f5;--t:#1c2a21;--m:#5d6b63;--l:#d9e5dd}
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--t)}
+header{background:var(--gd);color:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+header h1{font-size:1.1rem;margin:0}main{max-width:900px;margin:0 auto;padding:16px}
+.card{background:#fff;border:1px solid var(--l);border-radius:10px;padding:16px;margin-bottom:14px}
+h3{margin:0 0 10px}label{display:block;font-size:.85rem;color:var(--m);margin:8px 0 2px}
+input,select{padding:9px;border:1px solid var(--l);border-radius:6px;font:inherit;width:100%}
+form.row{display:flex;gap:8px;flex-wrap:wrap;align-items:end}form.row>*{flex:1 1 140px}
+button{background:var(--g);color:#fff;border:0;border-radius:6px;padding:9px 14px;font:inherit;cursor:pointer}
+button.alt{background:#fff;color:var(--g);border:1px solid var(--g)}button.bad{background:#b3261e}
+nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}nav button{background:#fff;color:var(--g);border:1px solid var(--g)}nav button.on{background:var(--g);color:#fff}
+.wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.9rem}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--l);white-space:nowrap}
+.tag{padding:2px 8px;border-radius:99px;font-size:.78rem;background:var(--l)}.approved,.Paid{background:#c8ecd3}.rejected,.Unpaid{background:#f6d0cd}.pending,.Partial{background:#fdeebb}
+#msg{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);padding:10px 16px;border-radius:8px;color:#fff;z-index:9}#msg:empty{display:none}#msg.ok{background:var(--g)}#msg.err{background:#b3261e}
+.m{color:var(--m);font-size:.85rem}.tabs{display:flex;gap:6px;margin-bottom:8px}
+@media print{header,nav,button,form{display:none!important}}
+</style>
+</head>
+<body>
+<header><h1 id="title">Chama & SACCO Manager</h1><button class="alt" id="out" hidden>Log out</button></header>
+<main>
+<section id="auth" class="card" style="max-width:420px;margin:30px auto">
+  <div class="tabs"><button id="t-login">Log in</button><button class="alt" id="t-signup">Create account</button></div>
+  <form id="af">
+    <div id="su" hidden>
+      <label>Your name</label><input name="name">
+      <label>Name of your SACCO / chama (leave blank if you were invited)</label><input name="group">
+    </div>
+    <label>Email</label><input name="email" type="email" required>
+    <label>Password (min 6 characters)</label><input name="password" type="password" minlength="6" required>
+    <p><button id="go">Log in</button></p>
+  </form>
+</section>
+<section id="app" hidden>
+  <nav id="nav"></nav>
+  <div id="view"></div>
+</section>
+</main>
+<div id="msg"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+const SUPABASE_URL="https://YOUR-PROJECT-REF.supabase.co", SUPABASE_ANON_KEY="YOUR-ANON-PUBLIC-KEY";
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+const $=s=>document.querySelector(s), kes=n=>'KES '+Number(n||0).toLocaleString('en-KE');
+const el=(t,p={},...k)=>{const e=document.createElement(t);for(const[a,v]of Object.entries(p))a.startsWith('on')?e.addEventListener(a.slice(2),v):e[a]=v;k.flat().filter(c=>c||c===0).forEach(c=>e.append(c));return e};
+const msg=(t,bad)=>{const m=$('#msg');m.textContent=t;m.className=bad?'err':'ok';setTimeout(()=>m.textContent='',4500)};
+const run=async f=>{try{await f()}catch(e){msg(e.message,1)}};
+const q=async p=>{const{data,error}=await p;if(error)throw error;return data};
+const tbl=(h,rows)=>el('div',{className:'wrap'},el('table',{},el('tr',{},h.map(x=>el('th',{},x))),rows.map(r=>el('tr',{},r.map(c=>el('td',{},c))))));
+const card=(t,...k)=>el('div',{className:'card'},t&&el('h3',{},t),k);
+const thisMonth=()=>new Date().toISOString().slice(0,7);
+let S={user:null,tab:'members'},signup=false;
+
+/* ---------- auth ---------- */
+const mode=s=>{signup=s;$('#su').hidden=!s;$('#go').textContent=s?'Create account':'Log in';$('#t-login').className=s?'alt':'';$('#t-signup').className=s?'':'alt'};
+$('#t-login').onclick=()=>mode(false);$('#t-signup').onclick=()=>mode(true);
+$('#af').onsubmit=e=>{e.preventDefault();run(async()=>{
+  const f=new FormData(e.target),email=f.get('email'),password=f.get('password');
+  if(signup){
+    if(f.get('group').trim())localStorage.setItem('pending',JSON.stringify({g:f.get('group').trim(),n:f.get('name').trim()}));
+    const{data,error}=await sb.auth.signUp({email,password});if(error)throw error;
+    if(!data.session)msg('Account created. Confirm your email, then log in.');
+  }else{const{error}=await sb.auth.signInWithPassword({email,password});if(error)throw error}
+})};
+$('#out').onclick=()=>sb.auth.signOut();
+sb.auth.onAuthStateChange((_e,s)=>{S.user=s?.user||null;setTimeout(boot,0)});
+
+/* ---------- data ---------- */
+const mine=()=>q(sb.from('members').select('*,groups(*)').eq('user_id',S.user.id).eq('active',true));
+async function boot(){
+  $('#auth').hidden=!!S.user;$('#app').hidden=!S.user;$('#out').hidden=!S.user;
+  if(!S.user){$('#title').textContent='Chama & SACCO Manager';return}
+  await run(async()=>{
+    await sb.rpc('link_member');
+    let ms=await mine();const p=JSON.parse(localStorage.getItem('pending')||'null');
+    if(!ms.length&&p){await q(sb.rpc('create_group',{p_name:p.g,p_monthly:0,p_admin_name:p.n||'Admin'}));localStorage.removeItem('pending');ms=await mine()}
+    S.me=ms[0];
+    if(!S.me){$('#nav').replaceChildren();$('#view').replaceChildren(card('No group yet','Ask your group admin to add your email address ('+S.user.email+'), then log in again.'));return}
+    S.g=S.me.groups;$('#title').textContent=S.g.name;await load();
+  });
+}
+async function load(){
+  const id=S.g.id;
+  [S.g,S.members,S.contribs,S.loans,S.votes]=await Promise.all([
+    q(sb.from('groups').select('*').eq('id',id).single()),
+    q(sb.from('members').select('*').eq('group_id',id).eq('active',true).order('name')),
+    q(sb.from('contributions').select('*').eq('group_id',id).order('created_at',{ascending:false})),
+    q(sb.from('loans').select('*').eq('group_id',id).order('created_at',{ascending:false})),
+    q(sb.from('loan_votes').select('*'))]);
+  S.admin=S.me.role==='admin';show(S.tab);
+}
+const nm=id=>S.members.find(m=>m.id===id)?.name||'Former member';
+const act=f=>e=>{e.preventDefault();run(async()=>{await f(e);await load()})};
+
+/* ---------- views ---------- */
+const tabs={members:'Members',contributions:'Contributions',loans:'Loans',report:'Report'};
+function show(t){S.tab=t;
+  $('#nav').replaceChildren(...Object.entries(tabs).map(([k,v])=>el('button',{className:k===t?'on':'',onclick:()=>show(k)},v)));
+  $('#view').replaceChildren(...{members:vMembers,contributions:vContribs,loans:vLoans,report:vReport}[t]());}
+
+function vMembers(){return[
+  S.admin&&card('Monthly contribution per member',el('form',{className:'row',onsubmit:act(e=>q(sb.from('groups').update({monthly_contribution:+e.target.amt.value}).eq('id',S.g.id)).then(()=>msg('Saved')))},
+    el('input',{name:'amt',type:'number',min:0,value:S.g.monthly_contribution}),el('button',{},'Save'))),
+  S.admin&&card('Add a member',el('form',{className:'row',onsubmit:act(async e=>{const f=e.target;
+      await q(sb.from('members').insert({group_id:S.g.id,name:f.name.value,phone:f.phone.value||null,email:f.email.value.trim()||null}));f.reset()})},
+    el('input',{name:'name',placeholder:'Full name',required:true}),el('input',{name:'phone',placeholder:'Phone 07xx...'}),
+    el('input',{name:'email',type:'email',placeholder:'Email (so they can log in & vote)'}),el('button',{},'Add'))),
+  card('Members ('+S.members.length+')',el('p',{className:'m'},'Monthly contribution: '+kes(S.g.monthly_contribution)),
+    tbl(['Name','Phone','Email','Role','Login',''],S.members.map(m=>[m.name,m.phone,m.email,m.role,m.user_id?'Linked':'Not yet',
+      S.admin&&m.role!=='admin'&&el('button',{className:'bad',onclick:()=>confirm('Remove '+m.name+'?')&&run(async()=>{await q(sb.from('members').update({active:false}).eq('id',m.id));await load()})},'Remove')])))]}
+
+function vContribs(){return[
+  S.admin&&card('Record a contribution',el('form',{className:'row',onsubmit:act(async e=>{const f=e.target;
+      await q(sb.from('contributions').insert({group_id:S.g.id,member_id:f.member.value,month:f.month.value+'-01',amount:+f.amount.value}));msg('Recorded')})},
+    el('select',{name:'member'},S.members.map(m=>el('option',{value:m.id},m.name))),el('input',{name:'month',type:'month',value:thisMonth(),required:true}),
+    el('input',{name:'amount',type:'number',min:1,value:S.g.monthly_contribution||'',required:true}),el('button',{},'Record'))),
+  card('Recent contributions',tbl(['Member','For month','Amount','Paid on',''],S.contribs.slice(0,50).map(c=>[nm(c.member_id),c.month.slice(0,7),kes(c.amount),c.paid_on,
+    S.admin&&el('button',{className:'bad',onclick:()=>confirm('Delete this entry?')&&run(async()=>{await q(sb.from('contributions').delete().eq('id',c.id));await load()})},'Delete')])))]}
+
+function vLoans(){const need=Math.ceil(S.members.length/2);return[
+  card('Request a loan',el('p',{className:'m'},`Needs approval from at least 50% of members (${need} of ${S.members.length}).`),
+    el('form',{className:'row',onsubmit:act(async e=>{const f=e.target;
+      await q(sb.from('loans').insert({group_id:S.g.id,member_id:S.me.id,amount:+f.amount.value,purpose:f.purpose.value,repayment_months:+f.months.value,committed:f.commit.checked}));f.reset();msg('Loan request sent for voting')})},
+    el('input',{name:'amount',type:'number',min:1,placeholder:'Amount (KES)',required:true}),el('input',{name:'purpose',placeholder:'Purpose',required:true}),
+    el('input',{name:'months',type:'number',min:1,max:60,placeholder:'Repay in months',required:true}),
+    el('label',{},el('input',{type:'checkbox',name:'commit',required:true,style:'width:auto'}),' I commit to repay this loan'),el('button',{},'Submit'))),
+  card('Loans',...S.loans.map(l=>{const v=S.votes.filter(x=>x.loan_id===l.id),yes=v.filter(x=>x.approve).length,my=v.find(x=>x.member_id===S.me.id);
+    return el('div',{style:'border-top:1px solid var(--l);padding:10px 0'},
+      el('b',{},nm(l.member_id)+' - '+kes(l.amount)),' ',el('span',{className:'tag '+l.status},l.status),
+      el('div',{className:'m'},`${l.purpose||''} | ${l.repayment_months} months | approvals ${yes}/${need} | ${new Date(l.created_at).toLocaleDateString('en-KE')}`),
+      l.status==='pending'&&l.member_id!==S.me.id&&el('div',{style:'margin-top:6px;display:flex;gap:6px;align-items:center'},
+        el('button',{onclick:()=>vote(l.id,true)},'Approve'),el('button',{className:'bad',onclick:()=>vote(l.id,false)},'Reject'),
+        my&&el('span',{className:'m'},'You voted '+(my.approve?'approve':'reject'))))}),!S.loans.length&&'No loans yet.')]}
+const vote=(id,a)=>run(async()=>{const s=await q(sb.rpc('vote_loan',{p_loan:id,p_approve:a}));msg('Vote saved. Loan is '+s);await load()});
+
+function vReport(){const sel=S.rm||thisMonth(),T=+S.g.monthly_contribution;let tm=0,ta=0;
+  const rows=S.members.map(m=>{const all=S.contribs.filter(c=>c.member_id===m.id),p=all.filter(c=>c.month.slice(0,7)===sel).reduce((s,c)=>s+ +c.amount,0),a=all.reduce((s,c)=>s+ +c.amount,0);
+    tm+=p;ta+=a;return[m.name,kes(p),el('span',{className:'tag '+(p>=T&&T>0?'Paid':p>0?'Partial':'Unpaid')},p>=T&&T>0?'Paid':p>0?'Partial':'Unpaid'),kes(a)]});
+  const ap=S.loans.filter(l=>l.status==='approved').reduce((s,l)=>s+ +l.amount,0);
+  return[card('Contribution report',el('div',{className:'row',style:'display:flex;gap:8px;align-items:center'},
+      el('input',{type:'month',value:sel,style:'width:auto',onchange:e=>{S.rm=e.target.value;show('report')}}),el('button',{className:'alt',onclick:()=>print()},'Print / save PDF')),
+    tbl(['Member','Paid in month','Status','Total to date'],[...rows,[el('b',{},'Total'),el('b',{},kes(tm)),'Target '+kes(T*S.members.length),el('b',{},kes(ta))]])),
+    card('Loans summary',`Approved: ${kes(ap)} | Pending: ${S.loans.filter(l=>l.status==='pending').length} | Contributions less approved loans: ${kes(ta-ap)}`)]}
+</script>
+</body>
+</html>
